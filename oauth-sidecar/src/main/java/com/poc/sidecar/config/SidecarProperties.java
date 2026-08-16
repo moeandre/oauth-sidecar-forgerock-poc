@@ -19,7 +19,7 @@ import java.util.Map;
  *
  * Cada rota tambem aponta para um client-registration OAuth2 proprio
  * ({@code client-registration-id}, correspondendo a um client-id distinto no
- * Keycloak): cada microservico tem seu proprio client e seus proprios
+ * AM/ForgeRock): cada microservico tem seu proprio client e seus proprios
  * escopos (ex.: "task:read"/"task:write" para o crud-service, "billing:read"/
  * "billing:write" para o billing-service), em vez de todo mundo compartilhar
  * um unico client/escopo genericos "read"/"write".
@@ -97,7 +97,7 @@ public class SidecarProperties {
          * Id do client OAuth2 (em {@code spring.security.oauth2.client.registration})
          * usado para autenticar/autorizar chamadas a esta rota. Cada
          * microservico tem o seu proprio (ex.: "tasks-client", "billing-client"),
-         * cada um mapeando para um client-id diferente no Keycloak.
+         * cada um mapeando para um client-id diferente no AM.
          */
         private String clientRegistrationId;
 

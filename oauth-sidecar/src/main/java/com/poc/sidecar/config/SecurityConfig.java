@@ -25,7 +25,7 @@ import java.util.List;
 @Configuration
 public class SecurityConfig {
 
-    @Value("${spring.security.oauth2.client.provider.keycloak.issuer-uri}")
+    @Value("${spring.security.oauth2.client.provider.forgerock.issuer-uri}")
     private String issuerUrl;
 
     // "*" por padrao (dev). Em producao, defina SIDECAR_CORS_ALLOWED_ORIGINS
@@ -80,7 +80,7 @@ public class SecurityConfig {
      * access token expirado ficaria "preso" (ou o request cai sempre no
      * step-up mesmo com o usuario ja tendo aprovado o escopo antes). Com o
      * manager + o provider "refreshToken()", um token expirado e renovado
-     * automaticamente via refresh_token (chamada ao Keycloak) na hora do
+     * automaticamente via refresh_token (chamada ao AM) na hora do
      * "authorize()" - so quando de fato ja expirou (checagem local, sem custo
      * de rede na maioria das chamadas); sem refresh_token valido, cai de
      * volta pro fluxo normal de reautorizacao.
@@ -109,7 +109,8 @@ public class SecurityConfig {
 
                 String idToken = oidcUser.getIdToken().getTokenValue();
 
-                String logoutUrl = issuerUrl + "/protocol/openid-connect/logout" +
+                // Endpoint OIDC RP-Initiated Logout do AM: "{issuer}/connect/endSession".
+                String logoutUrl = issuerUrl + "/connect/endSession" +
                                 "?id_token_hint=" + idToken +
                                 "&post_logout_redirect_uri=http://localhost:8082";
 

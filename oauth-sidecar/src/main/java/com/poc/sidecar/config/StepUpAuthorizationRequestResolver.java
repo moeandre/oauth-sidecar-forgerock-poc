@@ -15,13 +15,13 @@ import java.util.Set;
  * ProxyController quando o token atual nao tem o escopo necessario), duas
  * coisas mudam em relacao a um login normal:
  *
- * 1. Adicionamos "prompt=consent", para o Keycloak reexibir a tela de
+ * 1. Adicionamos "prompt=consent", para o AM reexibir a tela de
  *    consentimento mesmo que o usuario ja tenha uma sessao/consentimento
- *    anterior (sem isso, o Keycloak poderia simplesmente pular a tela e
+ *    anterior (sem isso, o AM poderia simplesmente pular a tela e
  *    devolver o codigo sem o usuario ver nada novo).
  * 2. Acrescentamos o escopo pedido no parametro "scope" ao pedido de
  *    autorizacao. O login normal (application.yml) so pede "openid read" -
- *    "write" nunca e solicitado de antemao. Assim o Keycloak so exibe/pede
+ *    "write" nunca e solicitado de antemao. Assim o AM so exibe/pede
  *    consentimento pelo escopo que esta de fato sendo solicitado *naquele*
  *    momento: nada no login comum (read e concedido silenciosamente, sem
  *    tela), e so "write" no momento do step-up.

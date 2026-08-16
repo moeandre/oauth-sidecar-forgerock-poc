@@ -38,7 +38,7 @@ import java.util.Set;
  * sirva varios componentes ao mesmo tempo (ex.: crud-service em "/api/tasks"
  * autenticado via "tasks-client"/escopos "task:*", billing-service em
  * "/api/billing" via "billing-client"/escopos "billing:*"), cada um com seu
- * proprio client Keycloak e sua propria politica - e que novas rotas sejam
+ * proprio client no AM e sua propria politica - e que novas rotas sejam
  * adicionadas so editando configuracao, sem recompilar.
  *
  * Como cada rota pode usar um client OAuth2 diferente, o authorized client
@@ -77,7 +77,7 @@ public class ProxyController {
     // Sem isso, apos autorizar um client pela primeira vez (ou fazer step-up)
     // o usuario cai na home ("/") em vez de voltar pro path que ele pediu -
     // o request cache e o que faz o Spring "lembrar" pra onde reenviar depois
-    // do redirect ao Keycloak (mesmo mecanismo que o entry point ja ganha de
+    // do redirect ao AM (mesmo mecanismo que o entry point ja ganha de
     // graca quando quem intercepta e o proprio Spring Security).
     private final RequestCache requestCache = new HttpSessionRequestCache();
 
@@ -123,7 +123,7 @@ public class ProxyController {
                 .build();
         // Nunca autorizado ainda -> null (igual antes). Ja autorizado mas
         // expirado e com refresh_token valido -> renova aqui mesmo (chamada
-        // ao Keycloak), sem exigir novo login interativo do usuario.
+        // ao AM), sem exigir novo login interativo do usuario.
         OAuth2AuthorizedClient authorizedClient = authorizedClientManager.authorize(authorizeRequest);
 
         if (authorizedClient == null) {
@@ -145,10 +145,10 @@ public class ProxyController {
         if (!grantedScopes.contains(requiredScope)) {
             // Client ja autorizado, mas sem o escopo necessario: (re)inicia o
             // fluxo OAuth PARA ESSE MESMO CLIENT solicitando exatamente o
-            // escopo que falta (via "scope=") - assim o Keycloak so exibe/pede
+            // escopo que falta (via "scope=") - assim o AM so exibe/pede
             // consentimento por ele agora, no step-up, nao de antemao. O
             // StepUpAuthorizationRequestResolver adiciona esse escopo ao
-            // pedido e "prompt=consent" para o Keycloak reabrir a tela de
+            // pedido e "prompt=consent" para o AM reabrir a tela de
             // consentimento mesmo que ja exista sessao/consentimento anterior.
             saveRequestIfReplayable(request, response);
             String scopeParam = URLEncoder.encode(requiredScope, StandardCharsets.UTF_8);

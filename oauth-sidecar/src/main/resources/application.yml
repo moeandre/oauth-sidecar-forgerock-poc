@@ -31,35 +31,38 @@ spring:
       client:
         registration:
           # Um client-id por microservico, cada um com seus proprios escopos
-          # (ver keycloak/realm-export.json). "write"/"read" nao entram aqui
-          # de proposito: cada client so pede o escopo "*-read" (silencioso,
+          # (ver forgerock/provision.sh). "write"/"read" nao entram aqui de
+          # proposito: cada client so pede o escopo "*-read" (silencioso,
           # default) de antemao; "*-write" so e solicitado no momento do
           # step-up (ver StepUpAuthorizationRequestResolver e ProxyController),
-          # para o Keycloak so exibir o escopo que realmente esta sendo
-          # pedido naquele momento, e nao sempre.
+          # para o AM so exibir o escopo que realmente esta sendo pedido
+          # naquele momento, e nao sempre.
           tasks-client:
-            provider: keycloak
+            provider: forgerock
             client-id: tasks-client
-            # Default so para dev local (o realm-export.json de exemplo usa
-            # esse valor). Em producao, SEMPRE via env var (nunca secret em
-            # texto puro versionado) - ex.: TASKS_CLIENT_SECRET=xxxx.
+            # Default so para dev local (o forgerock/provision.sh de exemplo
+            # usa esse valor). Em producao, SEMPRE via env var (nunca secret
+            # em texto puro versionado) - ex.: TASKS_CLIENT_SECRET=xxxx.
             client-secret: ${TASKS_CLIENT_SECRET:tasks-secret}
             authorization-grant-type: authorization_code
             scope: openid,task:read
             redirect-uri: "{baseUrl}/login/oauth2/code/{registrationId}"
           billing-client:
-            provider: keycloak
+            provider: forgerock
             client-id: billing-client
             client-secret: ${BILLING_CLIENT_SECRET:billing-secret}
             authorization-grant-type: authorization_code
             scope: openid,billing:read
             redirect-uri: "{baseUrl}/login/oauth2/code/{registrationId}"
         provider:
-          keycloak:
+          forgerock:
             # Mesmo hostname usado pelo navegador (host) e pelos containers,
-            # ver README para o ajuste necessario no /etc/hosts.
-            issuer-uri: http://keycloak:8080/realms/poc-realm
-            #issuer-uri: http://host.docker.internal:8080/realms/poc-realm
+            # ver README para o ajuste necessario no /etc/hosts. Tudo e
+            # provisionado no realm raiz ("/") do AM, por isso o path nao
+            # tem "/realms/<nome>" (ver forgerock/provision.sh, item 1, sobre
+            # por que esta PoC nao usa um realm dedicado).
+            issuer-uri: http://openam:8080/openam/oauth2
+            #issuer-uri: http://host.docker.internal:8080/openam/oauth2
   #habilita thread cirtuais
   threads:
     virtual:
@@ -76,7 +79,7 @@ sidecar:
   # esta em codigo (ver SidecarProperties/ProxyController); adicionar um novo
   # componente atras do sidecar e so acrescentar uma entrada aqui (e o client
   # correspondente em spring.security.oauth2.client.registration acima, e em
-  # keycloak/realm-export.json) - ou sobrescrever via variavel de ambiente,
+  # forgerock/provision.sh) - ou sobrescrever via variavel de ambiente,
   # ex.: SIDECAR_ROUTES_0_SCOPES_MAPPING_GET=task:read.
   routes:
     - path: /api/tasks

@@ -2,7 +2,7 @@ package com.poc.sidecar.config;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.http.client.ClientHttpRequestFactoryBuilder;
-import org.springframework.boot.http.client.ClientHttpRequestFactorySettings;
+import org.springframework.boot.http.client.HttpClientSettings;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.client.ClientHttpRequestFactory;
@@ -29,7 +29,7 @@ public class RestClientConfig {
             @Value("${spring.http.client.connect-timeout:2s}") Duration connectTimeout,
             @Value("${spring.http.client.read-timeout:3s}") Duration readTimeout) {
 
-        ClientHttpRequestFactorySettings settings = ClientHttpRequestFactorySettings.defaults()
+        HttpClientSettings settings = HttpClientSettings.defaults()
                 .withConnectTimeout(connectTimeout)
                 .withReadTimeout(readTimeout);
 
