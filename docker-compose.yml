@@ -1,0 +1,89 @@
+version: "3.9"
+
+services:
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.6
+    container_name: keycloak
+    command: start-dev --import-realm --hostname=http://keycloak:8080
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+    volumes:
+      - ./keycloak/realm-export.json:/opt/keycloak/data/import/realm-export.json:ro
+    ports:
+      - "8080:8080"
+    networks:
+      - poc-net
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8080 && echo -e 'GET /realms/poc-realm HTTP/1.1\r\nhost: localhost\r\nConnection: close\r\n\r\n' >&3 && cat <&3 | grep -q 'poc-realm'"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  crud-service:
+    build: ./crud-service
+    container_name: crud-service
+    # Não publicamos porta no host de propósito: só o sidecar deve falar com esse serviço.
+    #ports:
+    #- "8081:8081"
+    networks:
+      - poc-net
+
+  billing-service:
+    build: ./billing-service
+    container_name: billing-service
+    # Mesmo isolamento do crud-service: não publicado no host, só o sidecar acessa.
+    networks:
+      - poc-net
+
+  oauth-sidecar:
+    build: ./oauth-sidecar
+    container_name: oauth-sidecar
+    depends_on:
+      keycloak:
+        condition: service_healthy
+      crud-service:
+        condition: service_started
+      billing-service:
+        condition: service_started
+    ports:
+      - "8082:8082"
+      # 9090 (health/metrics/prometheus) de proposito NAO publicado no host -
+      # mesmo principio do crud-service/billing-service: so quem esta na rede
+      # interna (ex.: um Prometheus rodando no mesmo compose/cluster) acessa.
+    networks:
+      - poc-net
+    environment:
+      # Defaults iguais aos do application.yml/realm-export.json, so pra
+      # deixar explicito o mecanismo de override em producao (nunca comitar
+      # o valor real aqui - isto e so o default de dev).
+      TASKS_CLIENT_SECRET: tasks-secret
+      BILLING_CLIENT_SECRET: billing-secret
+    # A tabela de rotas (path protegido -> backend -> escopo por verbo) vem do
+    # application.yml (ver "sidecar.routes" e SidecarProperties). Uma rota
+    # isolada pode ser sobrescrita aqui via environment sem recompilar, ex.:
+    #   SIDECAR_ROUTES_1_BACKENDBASEURL: http://billing-service:9090
+    #   SIDECAR_ROUTES_1_SCOPES_MAPPING_GET: read
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/9090 && echo -e \"GET /actuator/health HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n\" >&3 && grep -q \"\\\"status\\\":\\\"UP\\\"\" <&3'"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 20s
+    # Alvo de capacidade: 500 TPS (ver README). Estes numeros sao um ponto de
+    # partida, NAO um resultado de teste de carga - valide com uma ferramenta
+    # de verdade (k6/Gatling/JMeter) contra a topologia real antes de
+    # confiar neles em producao; ajuste conforme o que a carga real mostrar.
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 768M
+        reservations:
+          cpus: "0.5"
+          memory: 384M
+
+networks:
+  poc-net:
+    driver: bridge

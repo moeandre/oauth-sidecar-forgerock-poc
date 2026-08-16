@@ -1,0 +1,139 @@
+server:
+  port: 8082
+  #tunning no tomcat
+  # OBS: com spring.threads.virtual.enabled=true (abaixo), o conector do
+  # Tomcat passa a usar um executor de thread virtual, e "threads.max"/
+  # "min-spare" (que configuram o pool de threads PLATAFORMA) deixam de ter
+  # efeito pratico - quem ainda vale e "accept-count" (fila de conexoes
+  # aguardando aceitar) e "max-connections" (teto de conexoes simultaneas),
+  # que atuam no nivel de socket/conexao, nao de thread. Mantidos aqui como
+  # documentacao/fallback caso as threads virtuais sejam desligadas depois.
+  tomcat:
+    threads:
+      max: 200
+      min-spare: 20
+    accept-count: 100
+    max-connections: 8192
+  servlet:
+    session:
+      # Explicito para nao depender do default do Tomcat (30min): sessao
+      # guarda os OAuth2AuthorizedClient (um por client-registration/rota) em
+      # memoria - sem um teto razoavel, sessoes esquecidas se acumulam e
+      # crescem o heap. Ajuste conforme o uso real (tempo entre requisicoes
+      # de um usuario legitimo).
+      timeout: 30m
+
+spring:
+  application:
+    name: oauth-sidecar
+  security:
+    oauth2:
+      client:
+        registration:
+          # Um client-id por microservico, cada um com seus proprios escopos
+          # (ver keycloak/realm-export.json). "write"/"read" nao entram aqui
+          # de proposito: cada client so pede o escopo "*-read" (silencioso,
+          # default) de antemao; "*-write" so e solicitado no momento do
+          # step-up (ver StepUpAuthorizationRequestResolver e ProxyController),
+          # para o Keycloak so exibir o escopo que realmente esta sendo
+          # pedido naquele momento, e nao sempre.
+          tasks-client:
+            provider: keycloak
+            client-id: tasks-client
+            # Default so para dev local (o realm-export.json de exemplo usa
+            # esse valor). Em producao, SEMPRE via env var (nunca secret em
+            # texto puro versionado) - ex.: TASKS_CLIENT_SECRET=xxxx.
+            client-secret: ${TASKS_CLIENT_SECRET:tasks-secret}
+            authorization-grant-type: authorization_code
+            scope: openid,task:read
+            redirect-uri: "{baseUrl}/login/oauth2/code/{registrationId}"
+          billing-client:
+            provider: keycloak
+            client-id: billing-client
+            client-secret: ${BILLING_CLIENT_SECRET:billing-secret}
+            authorization-grant-type: authorization_code
+            scope: openid,billing:read
+            redirect-uri: "{baseUrl}/login/oauth2/code/{registrationId}"
+        provider:
+          keycloak:
+            # Mesmo hostname usado pelo navegador (host) e pelos containers,
+            # ver README para o ajuste necessario no /etc/hosts.
+            issuer-uri: http://keycloak:8080/realms/poc-realm
+            #issuer-uri: http://host.docker.internal:8080/realms/poc-realm
+  #habilita thread cirtuais
+  threads:
+    virtual:
+      enabled: true
+  #limita conexões http por padrão
+  http:
+    client:
+      connect-timeout: 2s
+      read-timeout: 3s
+
+sidecar:
+  # Tabela de roteamento: path protegido -> backend -> client OAuth2 (client-id
+  # proprio do microservico) -> politica de escopo por verbo HTTP. Nada disso
+  # esta em codigo (ver SidecarProperties/ProxyController); adicionar um novo
+  # componente atras do sidecar e so acrescentar uma entrada aqui (e o client
+  # correspondente em spring.security.oauth2.client.registration acima, e em
+  # keycloak/realm-export.json) - ou sobrescrever via variavel de ambiente,
+  # ex.: SIDECAR_ROUTES_0_SCOPES_MAPPING_GET=task:read.
+  routes:
+    - path: /api/tasks
+      backend-base-url: http://crud-service:8081
+      client-registration-id: tasks-client
+      scopes:
+        # Escopo exigido quando o metodo HTTP nao aparece no mapa abaixo.
+        default-scope: task:write
+        mapping:
+          GET: task:read
+          HEAD: task:read
+          POST: task:write
+          PUT: task:write
+          PATCH: task:write
+          DELETE: task:write
+    - path: /api/billing
+      backend-base-url: http://billing-service:8083
+      client-registration-id: billing-client
+      scopes:
+        default-scope: billing:write
+        mapping:
+          GET: billing:read
+          HEAD: billing:read
+          POST: billing:write
+          PUT: billing:write
+          PATCH: billing:write
+          DELETE: billing:write
+
+management:
+  # Porta separada (nao publicada no docker-compose, igual crud-service e
+  # billing-service) para health/metrics/prometheus: assim eles nao competem
+  # com o SecurityFilterChain de negocio (que exige login OAuth2) nem ficam
+  # expostos publicamente na 8082 so porque alguem quer fazer scraping. Um
+  # scraper de metricas nao sabe fazer login OAuth2 interativo.
+  server:
+    port: 9090
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus,metrics
+  endpoint:
+    health:
+      show-details: never
+      probes:
+        enabled: true
+  metrics:
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+        http.client.requests: true
+
+logging:
+  level:
+    # INFO por padrao (prod-safe: DEBUG deste pacote loga headers/decisoes de
+    # escopo por requisicao - custo de I/O e risco de vazar dado sensivel em
+    # log sob alto volume). Para depurar, suba so este pacote via env var, ex.:
+    # LOGGING_LEVEL_COM_POC_SIDECAR=DEBUG - sem precisar recompilar/redeploy
+    # em builds que leem env var em runtime.
+    com.poc.sidecar: INFO
+    org.springframework.security: INFO

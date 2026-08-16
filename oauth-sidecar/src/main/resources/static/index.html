@@ -1,0 +1,874 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>API Tester</title>
+<style>
+  :root{
+    --bg:#f5f6f8;
+    --surface:#ffffff;
+    --border:#e2e5ea;
+    --text:#1c1f26;
+    --text-muted:#6b7280;
+    --accent:#4f5bd5;
+    --accent-hover:#3f4ab8;
+    --ok:#1a9e5c;
+    --ok-bg:#e6f7ee;
+    --warn:#b5730a;
+    --warn-bg:#fdf1de;
+    --err:#c62d3f;
+    --err-bg:#fbe7e9;
+    --radius:10px;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    background:var(--bg);
+    color:var(--text);
+  }
+  .layout{
+    display:grid;
+    grid-template-columns:260px 1fr;
+    min-height:100vh;
+  }
+  @media (max-width:820px){
+    .layout{grid-template-columns:1fr;}
+  }
+  .sidebar{
+    background:var(--surface);
+    border-right:1px solid var(--border);
+    padding:24px 18px;
+  }
+  .sidebar h1{
+    font-size:16px;
+    margin:0 0 4px;
+  }
+  .sidebar p.subtitle{
+    font-size:12px;
+    color:var(--text-muted);
+    margin:0 0 20px;
+    line-height:1.4;
+  }
+  .sidebar h2{
+    font-size:11px;
+    text-transform:uppercase;
+    letter-spacing:.04em;
+    color:var(--text-muted);
+    margin:0 0 10px;
+  }
+  .service-item{
+    display:flex;
+    align-items:flex-start;
+    justify-content:space-between;
+    gap:6px;
+    border:1px solid var(--border);
+    border-radius:8px;
+    padding:10px 10px;
+    margin-bottom:8px;
+    cursor:pointer;
+    background:var(--bg);
+  }
+  .service-item:hover{border-color:var(--accent);}
+  .service-item.active{
+    border-color:var(--accent);
+    background:#eef0fd;
+  }
+  .service-item .info{overflow:hidden;}
+  .service-item .name{
+    font-size:13px;
+    font-weight:600;
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+  }
+  .service-item .url{
+    font-size:11px;
+    color:var(--text-muted);
+    font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+  }
+  .service-item .icon-btns{
+    display:flex;
+    gap:4px;
+    flex-shrink:0;
+  }
+  .service-item .icon-btns button{
+    border:none;
+    background:transparent;
+    color:var(--text-muted);
+    cursor:pointer;
+    font-size:12px;
+    padding:2px 4px;
+  }
+  .service-item .icon-btns button:hover{color:var(--accent);}
+  .service-item .icon-btns button.del:hover{color:var(--err);}
+  .empty-services{
+    font-size:12px;
+    color:var(--text-muted);
+    font-style:italic;
+    margin-bottom:12px;
+  }
+  #addServiceBtn{
+    width:100%;
+    background:var(--bg);
+    border:1px dashed var(--border);
+    border-radius:8px;
+    padding:9px;
+    font-size:13px;
+    color:var(--text-muted);
+    cursor:pointer;
+    margin-top:4px;
+  }
+  #addServiceBtn:hover{border-color:var(--accent);color:var(--accent);}
+  #serviceForm{
+    margin-top:12px;
+    border-top:1px solid var(--border);
+    padding-top:12px;
+  }
+  #serviceForm.hidden{display:none;}
+  #serviceForm label{
+    display:block;
+    font-size:11px;
+    font-weight:600;
+    color:var(--text-muted);
+    margin:0 0 4px;
+  }
+  #serviceForm input{
+    width:100%;
+    border:1px solid var(--border);
+    border-radius:7px;
+    padding:7px 8px;
+    font-size:13px;
+    margin-bottom:10px;
+    font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  }
+  #serviceForm .form-actions{
+    display:flex;
+    gap:6px;
+  }
+  #serviceForm .form-actions button{
+    flex:1;
+    border-radius:7px;
+    padding:8px;
+    font-size:12.5px;
+    cursor:pointer;
+    border:1px solid var(--border);
+  }
+  #serviceForm .save-btn{
+    background:var(--accent);
+    border-color:var(--accent);
+    color:#fff;
+  }
+  #serviceForm .save-btn:hover{background:var(--accent-hover);}
+
+  main{
+    padding:32px 28px 60px;
+    max-width:920px;
+  }
+  main > .subtitle{
+    color:var(--text-muted);
+    font-size:13px;
+    margin:-6px 0 22px;
+  }
+  .active-service-bar{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    background:var(--surface);
+    border:1px solid var(--border);
+    border-radius:var(--radius);
+    padding:12px 14px;
+    margin-bottom:22px;
+    font-size:13px;
+  }
+  .active-service-bar .label{
+    color:var(--text-muted);
+    font-weight:600;
+    white-space:nowrap;
+  }
+  .active-service-bar .value{
+    font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    overflow-wrap:anywhere;
+  }
+  .grid{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:20px;
+  }
+  @media (max-width:700px){
+    .grid{grid-template-columns:1fr;}
+  }
+  .panel{
+    background:var(--surface);
+    border:1px solid var(--border);
+    border-radius:var(--radius);
+    padding:18px;
+  }
+  .panel h2{
+    font-size:15px;
+    margin:0 0 14px;
+  }
+  .tabs{
+    display:flex;
+    flex-wrap:wrap;
+    gap:6px;
+    margin-bottom:16px;
+  }
+  .tab{
+    border:1px solid var(--border);
+    background:var(--bg);
+    color:var(--text);
+    padding:7px 12px;
+    border-radius:20px;
+    font-size:13px;
+    cursor:pointer;
+  }
+  .tab:hover{border-color:var(--accent);}
+  .tab.active{
+    background:var(--accent);
+    border-color:var(--accent);
+    color:#fff;
+  }
+  .field{margin-bottom:14px;}
+  .field.hidden{display:none;}
+  .field label{
+    display:block;
+    font-size:13px;
+    font-weight:600;
+    color:var(--text-muted);
+    margin-bottom:6px;
+  }
+  .field input, .field textarea{
+    width:100%;
+    border:1px solid var(--border);
+    border-radius:8px;
+    padding:9px 10px;
+    font-size:14px;
+    font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    resize:vertical;
+  }
+  .method-hint{
+    display:inline-block;
+    font-size:11px;
+    font-weight:700;
+    letter-spacing:.03em;
+    padding:2px 8px;
+    border-radius:5px;
+    margin-bottom:14px;
+    background:var(--bg);
+    border:1px solid var(--border);
+    color:var(--text-muted);
+  }
+  .send-btn{
+    background:var(--accent);
+    color:#fff;
+    border:none;
+    border-radius:8px;
+    padding:10px 18px;
+    font-size:14px;
+    font-weight:600;
+    cursor:pointer;
+    width:100%;
+  }
+  .send-btn:hover{background:var(--accent-hover);}
+  .send-btn:disabled{opacity:.6;cursor:default;}
+  .response-header{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    margin-bottom:14px;
+  }
+  .status-badge{
+    font-size:12px;
+    font-weight:700;
+    padding:3px 10px;
+    border-radius:20px;
+    background:var(--bg);
+    color:var(--text-muted);
+    border:1px solid var(--border);
+  }
+  .status-badge.ok{background:var(--ok-bg);color:var(--ok);border-color:transparent;}
+  .status-badge.warn{background:var(--warn-bg);color:var(--warn);border-color:transparent;}
+  .status-badge.err{background:var(--err-bg);color:var(--err);border-color:transparent;}
+  #responseBody{
+    background:#f8f9fb;
+    border:1px solid var(--border);
+    border-radius:8px;
+    padding:12px;
+    font-size:12.5px;
+    line-height:1.5;
+    font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    max-height:420px;
+    overflow:auto;
+    white-space:pre-wrap;
+    word-break:break-word;
+    margin:0;
+  }
+  .results{
+    margin-top:20px;
+  }
+  .results-header{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    margin-bottom:14px;
+  }
+  .results-header button{
+    background:var(--bg);
+    border:1px solid var(--border);
+    border-radius:8px;
+    padding:7px 12px;
+    font-size:13px;
+    cursor:pointer;
+  }
+  .results-header button:hover{border-color:var(--accent);color:var(--accent);}
+  table{
+    width:100%;
+    border-collapse:collapse;
+    font-size:13px;
+  }
+  th,td{
+    text-align:left;
+    padding:9px 10px;
+    border-bottom:1px solid var(--border);
+    max-width:260px;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+  }
+  th{
+    color:var(--text-muted);
+    font-weight:600;
+    font-size:12px;
+    text-transform:uppercase;
+    letter-spacing:.03em;
+  }
+  td.actions{
+    display:flex;
+    gap:6px;
+    white-space:nowrap;
+  }
+  td.actions button{
+    border:1px solid var(--border);
+    background:var(--bg);
+    border-radius:6px;
+    padding:5px 9px;
+    font-size:12px;
+    cursor:pointer;
+  }
+  td.actions button.edit:hover{border-color:var(--accent);color:var(--accent);}
+  td.actions button.del:hover{border-color:var(--err);color:var(--err);}
+  .empty-row td{
+    color:var(--text-muted);
+    font-style:italic;
+    text-align:center;
+    padding:20px;
+  }
+  .note{
+    font-size:12px;
+    color:var(--text-muted);
+    margin-top:12px;
+    line-height:1.5;
+  }
+</style>
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar">
+    <h1>API Tester</h1>
+    <p class="subtitle">Testador genérico de APIs REST. Cadastre um serviço por microserviço (crud-service, sidecar, futuros novos serviços...) e alterne entre eles.</p>
+    <h2>Serviços</h2>
+    <div id="serviceList"></div>
+    <button id="addServiceBtn" type="button">+ Novo serviço</button>
+    <div id="serviceForm" class="hidden">
+      <label for="svcName">Nome</label>
+      <input id="svcName" placeholder="ex: crud-service (direto)">
+      <label for="svcUrl">Base URL do recurso</label>
+      <input id="svcUrl" placeholder="ex: http://localhost:8081/tasks">
+      <div class="form-actions">
+        <button type="button" id="saveServiceBtn" class="save-btn">Salvar</button>
+        <button type="button" id="cancelServiceBtn">Cancelar</button>
+      </div>
+    </div>
+  </aside>
+
+  <main>
+    <p class="subtitle">Operações básicas (listar, buscar, criar, atualizar, excluir) contra o serviço selecionado ao lado.</p>
+
+    <div class="active-service-bar">
+      <span class="label">Testando:</span>
+      <span class="value" id="activeServiceLabel">nenhum serviço selecionado</span>
+    </div>
+
+    <div class="grid">
+      <section class="panel">
+        <h2>Requisição</h2>
+        <div class="tabs">
+          <button class="tab active" data-op="list">Listar</button>
+          <button class="tab" data-op="get">Buscar por ID</button>
+          <button class="tab" data-op="create">Criar</button>
+          <button class="tab" data-op="update">Atualizar</button>
+          <button class="tab" data-op="delete">Excluir</button>
+        </div>
+        <div id="methodHint" class="method-hint">GET /</div>
+
+        <div id="idField" class="field hidden">
+          <label for="taskId">ID do recurso</label>
+          <input id="taskId" placeholder="ex: 1">
+        </div>
+
+        <div id="bodyField" class="field hidden">
+          <label for="jsonBody">Body (JSON)</label>
+          <textarea id="jsonBody" rows="7" placeholder='{
+  "title": "...",
+  "description": "..."
+}'></textarea>
+        </div>
+
+        <button id="sendBtn" class="send-btn">Enviar</button>
+        <p class="note">Chamando um serviço em outra porta/host (cross-origin) exige que esse serviço permita CORS para esta página. Serviços protegidos por login (como um sidecar OAuth) exigem sessão ativa no mesmo navegador.</p>
+      </section>
+
+      <section class="panel">
+        <div class="response-header">
+          <h2>Resposta</h2>
+          <span id="statusBadge" class="status-badge">—</span>
+        </div>
+        <pre id="responseBody">Nenhuma requisição enviada ainda.</pre>
+      </section>
+    </div>
+
+    <section class="panel results">
+      <div class="results-header">
+        <h2>Resultados</h2>
+        <button id="refreshBtn" type="button">Atualizar lista</button>
+      </div>
+      <div id="tableWrap">
+        <table id="resultsTable">
+          <thead><tr></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+</div>
+
+<script>
+(function(){
+  var STORAGE_KEY = 'apiTesterServices_v1';
+  var SELECTED_KEY = 'apiTesterSelected_v1';
+
+  var defaultServices = [
+    /*{ id: 'crud-direct',  name: 'crud-service (direto)',      baseUrl: 'http://localhost:8081/tasks' },*/
+    { id: 'crud-sidecar', name: 'crud-service via sidecar',   baseUrl: 'http://localhost:8082/api/tasks' }
+  ];
+
+  function loadServices(){
+    try{
+      var raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return defaultServices.slice();
+      var parsed = JSON.parse(raw);
+      return Array.isArray(parsed) && parsed.length ? parsed : defaultServices.slice();
+    }catch(e){
+      return defaultServices.slice();
+    }
+  }
+
+  function saveServices(list){
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
+  }
+
+  var services = loadServices();
+  var selectedId = localStorage.getItem(SELECTED_KEY) || (services[0] && services[0].id);
+  var editingId = null;
+
+  var currentOp = 'list';
+  var opConfig = {
+    list:   { method:'GET',    needsId:false, needsBody:false, hint:'GET /' },
+    get:    { method:'GET',    needsId:true,  needsBody:false, hint:'GET /{id}' },
+    create: { method:'POST',   needsId:false, needsBody:true,  hint:'POST /' },
+    update: { method:'PUT',    needsId:true,  needsBody:true,  hint:'PUT /{id}' },
+    delete: { method:'DELETE', needsId:true,  needsBody:false, hint:'DELETE /{id}' }
+  };
+
+  var serviceListEl = document.getElementById('serviceList');
+  var addServiceBtn = document.getElementById('addServiceBtn');
+  var serviceForm = document.getElementById('serviceForm');
+  var svcNameInput = document.getElementById('svcName');
+  var svcUrlInput = document.getElementById('svcUrl');
+  var saveServiceBtn = document.getElementById('saveServiceBtn');
+  var cancelServiceBtn = document.getElementById('cancelServiceBtn');
+  var activeServiceLabel = document.getElementById('activeServiceLabel');
+
+  var tabs = document.querySelectorAll('.tab');
+  var idField = document.getElementById('idField');
+  var bodyField = document.getElementById('bodyField');
+  var taskIdInput = document.getElementById('taskId');
+  var jsonBodyInput = document.getElementById('jsonBody');
+  var methodHint = document.getElementById('methodHint');
+  var sendBtn = document.getElementById('sendBtn');
+  var statusBadge = document.getElementById('statusBadge');
+  var responseBody = document.getElementById('responseBody');
+  var refreshBtn = document.getElementById('refreshBtn');
+  var thead = document.querySelector('#resultsTable thead tr');
+  var tbody = document.querySelector('#resultsTable tbody');
+
+  function getSelectedService(){
+    return services.find(function(s){ return s.id === selectedId; }) || null;
+  }
+
+  function renderServiceList(){
+    serviceListEl.innerHTML = '';
+    if (services.length === 0){
+      var empty = document.createElement('p');
+      empty.className = 'empty-services';
+      empty.textContent = 'Nenhum serviço cadastrado ainda.';
+      serviceListEl.appendChild(empty);
+    }
+    services.forEach(function(svc){
+      var item = document.createElement('div');
+      item.className = 'service-item' + (svc.id === selectedId ? ' active' : '');
+
+      var info = document.createElement('div');
+      info.className = 'info';
+      var name = document.createElement('div');
+      name.className = 'name';
+      name.textContent = svc.name;
+      var url = document.createElement('div');
+      url.className = 'url';
+      url.textContent = svc.baseUrl;
+      info.appendChild(name);
+      info.appendChild(url);
+      info.addEventListener('click', function(){
+        selectedId = svc.id;
+        localStorage.setItem(SELECTED_KEY, selectedId);
+        renderServiceList();
+        updateActiveServiceLabel();
+        loadResults();
+      });
+
+      var btns = document.createElement('div');
+      btns.className = 'icon-btns';
+
+      var editBtn = document.createElement('button');
+      editBtn.textContent = '✎';
+      editBtn.title = 'Editar';
+      editBtn.addEventListener('click', function(ev){
+        ev.stopPropagation();
+        openServiceForm(svc);
+      });
+
+      var delBtn = document.createElement('button');
+      delBtn.className = 'del';
+      delBtn.textContent = '✕';
+      delBtn.title = 'Remover';
+      delBtn.addEventListener('click', function(ev){
+        ev.stopPropagation();
+        services = services.filter(function(s){ return s.id !== svc.id; });
+        saveServices(services);
+        if (selectedId === svc.id){
+          selectedId = services[0] ? services[0].id : null;
+          localStorage.setItem(SELECTED_KEY, selectedId || '');
+        }
+        renderServiceList();
+        updateActiveServiceLabel();
+        loadResults();
+      });
+
+      btns.appendChild(editBtn);
+      btns.appendChild(delBtn);
+
+      item.appendChild(info);
+      item.appendChild(btns);
+      serviceListEl.appendChild(item);
+    });
+  }
+
+  function openServiceForm(svc){
+    editingId = svc ? svc.id : null;
+    svcNameInput.value = svc ? svc.name : '';
+    svcUrlInput.value = svc ? svc.baseUrl : '';
+    serviceForm.classList.remove('hidden');
+    svcNameInput.focus();
+  }
+
+  function closeServiceForm(){
+    editingId = null;
+    svcNameInput.value = '';
+    svcUrlInput.value = '';
+    serviceForm.classList.add('hidden');
+  }
+
+  addServiceBtn.addEventListener('click', function(){ openServiceForm(null); });
+  cancelServiceBtn.addEventListener('click', closeServiceForm);
+
+  saveServiceBtn.addEventListener('click', function(){
+    var name = svcNameInput.value.trim();
+    var url = svcUrlInput.value.trim();
+    if (!name || !url){
+      alert('Preencha nome e base URL.');
+      return;
+    }
+    if (editingId){
+      services = services.map(function(s){
+        return s.id === editingId ? { id: s.id, name: name, baseUrl: url } : s;
+      });
+    }else{
+      var id = 'svc-' + Date.now();
+      services.push({ id: id, name: name, baseUrl: url });
+      selectedId = id;
+      localStorage.setItem(SELECTED_KEY, selectedId);
+    }
+    saveServices(services);
+    closeServiceForm();
+    renderServiceList();
+    updateActiveServiceLabel();
+    loadResults();
+  });
+
+  function updateActiveServiceLabel(){
+    var svc = getSelectedService();
+    activeServiceLabel.textContent = svc ? (svc.name + '  →  ' + svc.baseUrl) : 'nenhum serviço selecionado — cadastre um serviço ao lado';
+  }
+
+  function setOp(op){
+    currentOp = op;
+    tabs.forEach(function(t){ t.classList.toggle('active', t.dataset.op === op); });
+    var cfg = opConfig[op];
+    idField.classList.toggle('hidden', !cfg.needsId);
+    bodyField.classList.toggle('hidden', !cfg.needsBody);
+    methodHint.textContent = cfg.hint;
+  }
+
+  tabs.forEach(function(t){
+    t.addEventListener('click', function(){ setOp(t.dataset.op); });
+  });
+
+  function baseUrl(){
+    var svc = getSelectedService();
+    return svc ? svc.baseUrl.replace(/\/+$/, '') : '';
+  }
+
+  function setStatus(kind, text){
+    statusBadge.className = 'status-badge' + (kind ? ' ' + kind : '');
+    statusBadge.textContent = text;
+  }
+
+  function statusKind(status){
+    if (status >= 200 && status < 300) return 'ok';
+    if (status >= 400 && status < 500) return 'warn';
+    return 'err';
+  }
+
+  async function doRequest(op, opts){
+    opts = opts || {};
+    var cfg = opConfig[op];
+    var svc = getSelectedService();
+    if (!svc){
+      setStatus('err', 'sem serviço');
+      responseBody.textContent = 'Cadastre e selecione um serviço antes de enviar uma requisição.';
+      return null;
+    }
+    var url = baseUrl();
+    var id = opts.id !== undefined ? opts.id : taskIdInput.value.trim();
+    if (cfg.needsId){
+      if (!id){
+        setStatus('err', 'erro');
+        responseBody.textContent = 'Informe um ID.';
+        return null;
+      }
+      url += '/' + encodeURIComponent(id);
+    }
+
+    var fetchOpts = { method: cfg.method, headers: {} };
+    if (cfg.needsBody){
+      var raw = opts.body !== undefined ? opts.body : jsonBodyInput.value.trim();
+      if (raw){
+        try{
+          JSON.parse(raw);
+        }catch(e){
+          setStatus('err', 'JSON inválido');
+          responseBody.textContent = 'O body não é um JSON válido:\n' + e.message;
+          return null;
+        }
+        fetchOpts.headers['Content-Type'] = 'application/json';
+        fetchOpts.body = raw;
+      }
+    }
+
+    sendBtn.disabled = true;
+    setStatus('', '...');
+    responseBody.textContent = 'Enviando ' + cfg.method + ' ' + url + ' ...';
+
+    try{
+      var res = await fetch(url, fetchOpts);
+      var text = await res.text();
+      var pretty = text;
+      try{ pretty = JSON.stringify(JSON.parse(text), null, 2); }catch(e){ /* not json, keep raw */ }
+      setStatus(statusKind(res.status), res.status + ' ' + res.statusText);
+      responseBody.textContent = pretty || '(resposta vazia)';
+      return { res: res, text: text };
+    }catch(err){
+      setStatus('err', 'falha de rede');
+      responseBody.textContent = 'Não foi possível completar a requisição para ' + url + '.\n\nPossíveis causas: o serviço não está rodando, a URL está errada, ou o servidor está bloqueando CORS para esta origem.\n\nDetalhe técnico: ' + err.message;
+      return null;
+    }finally{
+      sendBtn.disabled = false;
+    }
+  }
+
+  sendBtn.addEventListener('click', async function(){
+    var result = await doRequest(currentOp);
+    if (result && result.res.ok && currentOp !== 'get'){
+      loadResults();
+    }
+  });
+
+  function normalizeList(parsed){
+    if (Array.isArray(parsed)) return parsed;
+    if (parsed && Array.isArray(parsed.data)) return parsed.data;
+    if (parsed && Array.isArray(parsed.items)) return parsed.items;
+    if (parsed && Array.isArray(parsed.content)) return parsed.content;
+    return null;
+  }
+
+  function pickIdKey(obj){
+    var candidates = ['id', '_id', 'uuid'];
+    for (var i=0;i<candidates.length;i++){
+      if (obj[candidates[i]] !== undefined) return candidates[i];
+    }
+    return Object.keys(obj)[0];
+  }
+
+  function cellValue(v){
+    if (v === null || v === undefined) return '';
+    if (typeof v === 'object') return JSON.stringify(v);
+    return String(v);
+  }
+
+  function renderTable(items){
+    thead.innerHTML = '';
+    tbody.innerHTML = '';
+
+    if (!items || items.length === 0){
+      var th = document.createElement('th');
+      th.textContent = 'Resultado';
+      thead.appendChild(th);
+      var thAct = document.createElement('th');
+      thAct.textContent = '';
+      thead.appendChild(thAct);
+      var row = document.createElement('tr');
+      row.className = 'empty-row';
+      var cell = document.createElement('td');
+      cell.colSpan = 2;
+      cell.textContent = items ? 'Nenhum item encontrado.' : 'A resposta não é uma lista (veja o painel de Resposta).';
+      row.appendChild(cell);
+      tbody.appendChild(row);
+      return;
+    }
+
+    var keys = [];
+    items.slice(0, 25).forEach(function(item){
+      if (item && typeof item === 'object'){
+        Object.keys(item).forEach(function(k){
+          if (keys.indexOf(k) === -1) keys.push(k);
+        });
+      }
+    });
+    if (keys.length === 0) keys = ['valor'];
+
+    keys.forEach(function(k){
+      var th = document.createElement('th');
+      th.textContent = k;
+      thead.appendChild(th);
+    });
+    var thActions = document.createElement('th');
+    thActions.textContent = 'Ações';
+    thead.appendChild(thActions);
+
+    items.forEach(function(item){
+      var tr = document.createElement('tr');
+      var obj = (item && typeof item === 'object') ? item : { valor: item };
+
+      keys.forEach(function(k){
+        var td = document.createElement('td');
+        td.textContent = cellValue(obj[k]);
+        td.title = td.textContent;
+        tr.appendChild(td);
+      });
+
+      var idKey = pickIdKey(obj);
+      var idVal = obj[idKey];
+
+      var tdActions = document.createElement('td');
+      tdActions.className = 'actions';
+
+      var editBtn = document.createElement('button');
+      editBtn.className = 'edit';
+      editBtn.textContent = 'Editar';
+      editBtn.addEventListener('click', function(){
+        setOp('update');
+        taskIdInput.value = idVal;
+        jsonBodyInput.value = JSON.stringify(obj, null, 2);
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      });
+      tdActions.appendChild(editBtn);
+
+      var delBtn = document.createElement('button');
+      delBtn.className = 'del';
+      delBtn.textContent = 'Excluir';
+      delBtn.addEventListener('click', async function(){
+        if (delBtn.dataset.confirm !== '1'){
+          delBtn.dataset.confirm = '1';
+          delBtn.textContent = 'Confirmar?';
+          setTimeout(function(){
+            delBtn.dataset.confirm = '0';
+            delBtn.textContent = 'Excluir';
+          }, 3000);
+          return;
+        }
+        setOp('delete');
+        var result = await doRequest('delete', { id: idVal });
+        if (result && result.res.ok){
+          loadResults();
+        }
+      });
+      tdActions.appendChild(delBtn);
+
+      tr.appendChild(tdActions);
+      tbody.appendChild(tr);
+    });
+  }
+
+  async function loadResults(){
+    var svc = getSelectedService();
+    if (!svc){
+      renderTable(null);
+      return;
+    }
+    try{
+      var res = await fetch(baseUrl(), { method: 'GET' });
+      var text = await res.text();
+      var parsed = null;
+      try{ parsed = JSON.parse(text); }catch(e){ /* ignore */ }
+      renderTable(normalizeList(parsed));
+    }catch(err){
+      renderTable(null);
+    }
+  }
+
+  refreshBtn.addEventListener('click', loadResults);
+
+  saveServices(services);
+  renderServiceList();
+  updateActiveServiceLabel();
+  setOp('list');
+  loadResults();
+})();
+</script>
+</body>
+</html>
