@@ -32,82 +32,93 @@ seu próprio client no AM, ao mesmo tempo.
 Browser/Client ──► oauth-sidecar ──┤
                     (8082)         └──► billing-service (8083, não exposto) — /api/billing
                          │
-                         └──► ForgeRock AM (8080) — login / emissão de token
+                         └──► ForgeRock AM / PingAM (sua instância) — login / emissão de token
 ```
 
 Nem `crud-service` nem `billing-service` conhecem OAuth: ambos só existem na
 rede interna do docker-compose e nunca são publicados no host. Essa é a
 demonstração central do padrão sidecar — e nenhuma linha desses dois serviços
-foi tocada nesta migração (ver seção 0 abaixo).
+foi tocada nesta migração.
 
-## 0. Sobre esta migração (Keycloak → ForgeRock AM)
+## 0. Sobre esta migração (Keycloak → ForgeRock AM) e por que não há um AM no docker-compose
 
-Esta PoC usava Keycloak originalmente; agora usa o **ForgeRock Access
-Management**, via a imagem `openidentityplatform/openam` (o fork open-source
-que deu origem ao produto comercial da Ping/ForgeRock — não é a imagem
-oficial licenciada da Ping, que não tem distribuição pública gratuita para
-`docker compose up`). `billing-service` e `crud-service` não sofreram
+Esta PoC usava Keycloak originalmente; agora usa **ForgeRock Access
+Management / PingAM**. `billing-service` e `crud-service` não sofreram
 nenhuma alteração: o sidecar continua sendo o único componente que fala
 OAuth2/OIDC, e do ponto de vista do Spring Security o provedor é só mais um
 `ClientRegistration`/`issuer-uri` — a troca de IdP não vazou para os
 microserviços de negócio.
 
-Diferente do Keycloak (que sobe já configurado via `start-dev
---import-realm` + um único JSON), o AM não tem um mecanismo de import
-declarativo pronto para uso via `docker compose up`. O provisionamento aqui
-é feito em duas etapas, ambas automatizadas (ver `forgerock/`):
+Diferente do Keycloak (que tinha uma imagem Docker oficial leve e subia já
+configurado via `--import-realm`), esta PoC **não sobe um AM/PingAM
+próprio no `docker compose up`** — ela espera uma instância já existente
+(sua, da sua organização, ou um tenant PingAM/Identity Cloud) e só aponta o
+sidecar para ela via variável de ambiente. Isso foi uma decisão deliberada,
+não só simplicidade: a imagem Docker community mais próxima de um "Keycloak
+dev-mode" (`openidentityplatform/openam`) foi testada extensivamente aqui e
+apresenta um bug de emissão de **ID Token OIDC** (a troca do `code` por token
+retorna 500 sempre que o escopo `openid` está presente — confirmado em duas
+versões da imagem, `16.1.2` e `16.0.6`, sem stack trace acessível em nenhum
+log). Como o sidecar depende de OIDC (não só OAuth2 puro — usa
+`OidcUser.getPreferredUsername()` e o `id_token` para logout), não dava para
+contornar isso só com configuração. Ver histórico de investigação no final
+desta seção se for útil para depurar aquele fork depois.
 
-1. **`forgerock/openam-entrypoint.sh`** — roda dentro do próprio container
-   `openam`: na primeira subida, executa a instalação silenciosa
-   (`openam-configurator-tool` + `forgerock/openam-config.properties`, que
-   sobe com um OpenDJ embutido, sem container separado); nas subidas
-   seguintes (config já persistida no volume `openam-data`), pula direto
-   para o Tomcat.
-2. **`forgerock/provision.sh`** — roda num container descartável
-   (`openam-provision`) só depois que o `openam` fica saudável. Faz via
-   REST o que o `keycloak/realm-export.json` fazia via import: cria o
-   OAuth2 Provider com os 4 escopos, os clients `tasks-client`/
-   `billing-client` e o usuário `demo`. É o equivalente ao antigo
-   `realm-export.json`, só que como script em vez de um JSON estático —
-   idempotente, pode rodar de novo sem quebrar nada.
+## 1. Pré-requisito: o que precisa existir no seu ForgeRock AM/PingAM
 
-## 1. Pré-requisito: hostname `openam`
+Antes de subir o `docker compose`, seu realm no AM precisa ter:
 
-Para o AM funcionar igual tanto para o navegador (rodando no seu host)
-quanto para os containers (rede interna do Docker), os dois lados precisam
-enxergar o AM pelo **mesmo** hostname: `openam`.
+1. **Um OAuth2/OIDC Provider configurado** no realm, com os 4 escopos usados
+   por esta PoC declarados (`task:read`, `task:write`, `billing:read`,
+   `billing:write`) — em **Realms > [seu realm] > Services > OAuth2
+   Provider**, seção de escopos suportados.
+2. **Dois OAuth2 Clients**, um por microserviço:
 
-Adicione uma entrada no seu arquivo de hosts apontando para `127.0.0.1`:
+   | Campo | `tasks-client` | `billing-client` |
+   |---|---|---|
+   | Client ID | `tasks-client` | `billing-client` |
+   | Client Secret | defina o seu | defina o seu |
+   | Client Type | Confidential | Confidential |
+   | Grant Types | Authorization Code (+ Refresh Token) | Authorization Code (+ Refresh Token) |
+   | Redirect URI | `http://localhost:8082/login/oauth2/code/tasks-client` | `http://localhost:8082/login/oauth2/code/billing-client` |
+   | Scopes | `openid`, `task:read`, `task:write` | `openid`, `billing:read`, `billing:write` |
+   | Default/pre-consentido | `openid`, `task:read` | `openid`, `billing:read` |
+   | Token Endpoint Auth Method | `client_secret_basic` | `client_secret_basic` |
 
-- Linux/Mac: `/etc/hosts`
-- Windows: `C:\Windows\System32\drivers\etc\hosts`
+   O redirect URI precisa ser **exato** (sem coringa) — é o padrão
+   `{baseUrl}/login/oauth2/code/{registrationId}` do Spring Security (ver
+   `oauth-sidecar/.../application.yml`).
+3. **Um usuário de teste** (ex.: `demo`) com senha que atenda a política de
+   senha do seu AM.
+4. Se o seu AM pedir consentimento explícito na tela de login (em vez de
+   conceder `*-read` silenciosamente, como o Keycloak original fazia): tudo
+   bem, é só aprovar uma vez — o comportamento de step-up (pedir `*-write`
+   só quando necessário, via `prompt=consent`) funciona de qualquer forma.
 
-```
-127.0.0.1 openam
-```
-
-Sem isso, o navegador não conseguirá resolver `http://openam:8080/...`
-durante o redirect de login.
+Anote a **issuer URI** do seu realm (o endereço a partir do qual
+`/.well-known/openid-configuration` resolve) — você vai precisar dela no
+próximo passo.
 
 ## 2. Subir o ambiente
 
+Defina as 3 variáveis de ambiente que o `docker-compose.yml` exige (o
+compose falha rápido, com mensagem clara, se alguma estiver faltando):
+
 ```bash
+export FORGEROCK_ISSUER_URI="https://SEU-AM/am/oauth2/realms/root/realms/SEU-REALM"
+export TASKS_CLIENT_SECRET="o-secret-do-tasks-client"
+export BILLING_CLIENT_SECRET="o-secret-do-billing-client"
+
 cd oauth-sidecar-poc
 docker compose up --build
 ```
 
-A primeira subida demora mais que um `docker compose up` comum: o container
-`openam` roda uma instalação silenciosa completa (Tomcat + OpenDJ embutido +
-configuração inicial), o que leva cerca de 1 minuto; só depois disso o
-healthcheck fica `healthy`, o `openam-provision` roda (alguns segundos) e aí
-sim o `oauth-sidecar` sobe. Subidas seguintes são rápidas (a config do AM
-persiste no volume `openam-data`).
+(No Windows/PowerShell: `$env:FORGEROCK_ISSUER_URI = "..."` etc., ou crie um
+`.env` na raiz do projeto com essas 3 linhas — o `docker compose` lê
+automaticamente.)
 
-Usuário de teste já provisionado:
-
-- **username:** `demo`
-- **senha:** `demo1234` (o AM exige mínimo de 8 caracteres — por isso não é
-  `demo123` como era no Keycloak)
+Se o `client-id` do seu client não for literalmente `tasks-client`/
+`billing-client`, sobrescreva também `TASKS_CLIENT_ID`/`BILLING_CLIENT_ID`.
 
 ## 3. Testando o fluxo
 
@@ -118,14 +129,9 @@ redirect + tela de login/consentimento do AM):
 http://localhost:8082/api/tasks
 ```
 
-- Você será redirecionado para o AM para logar como `demo`, pelo client
-  `tasks-client` (é o que a rota `/api/tasks` usa — ver `sidecar.routes`).
-- No primeiro login, o AM pede consentimento explícito para o escopo
-  `task:read` (diferente do Keycloak original, que tinha um jeito de marcar
-  um escopo como "não exibir na tela de consentimento" — o AM não tem esse
-  controle granular por escopo pronto de fábrica nesta versão). Aprovando
-  uma vez, o AM lembra o consentimento e não pede de novo em logins
-  seguintes — só o step-up abaixo força a tela a reaparecer.
+- Você será redirecionado para o AM para logar como seu usuário de teste,
+  pelo client `tasks-client` (é o que a rota `/api/tasks` usa — ver
+  `sidecar.routes`).
 - `task:write` **não é pedido no login** — só aparece quando necessário (ver
   passo a passo abaixo).
 
@@ -146,7 +152,7 @@ de sessão copiada. Para simplificar a demo, a forma mais direta é:
 Acessar `/api/billing` pela primeira vez na mesma sessão do navegador dispara
 um fluxo equivalente, mas para o client `billing-client` (escopos
 `billing:read`/`billing:write`) — são clients e tokens independentes, mesmo
-sendo o mesmo usuário `demo` autenticado nos dois.
+sendo o mesmo usuário autenticado nos dois.
 
 Endpoints, todos por trás de `/api` e roteados pelo sidecar conforme
 `sidecar.routes` (ver seção 4):
@@ -198,8 +204,8 @@ independente de existir rota para o path).
   verbo HTTP de cada rota. Nada disso é código; é só `application.yml` (ou
   variável de ambiente). Adicionar um novo componente atrás do sidecar é
   acrescentar uma entrada aqui, o client correspondente em
-  `spring.security.oauth2.client.registration` e o client no AM (ver
-  `forgerock/provision.sh`) — sem recompilar nada.
+  `spring.security.oauth2.client.registration` e o client no seu AM (ver
+  seção 1) — sem recompilar nada.
 - `oauth-sidecar/.../proxy/ProxyController.java` — é o **interceptor**:
   resolve qual rota configurada bate com o path da requisição, busca o
   `OAuth2AuthorizedClient` do client daquela rota (via
@@ -212,37 +218,11 @@ independente de existir rota para o path).
   `billing-service/.../controller/BillingController.java` — CRUD puro, sem
   nenhuma linha de código de segurança; cada um só existe na rede interna
   do compose. **Não modificados nesta migração.**
-- `forgerock/openam-config.properties` + `forgerock/openam-entrypoint.sh` —
-  instalação silenciosa do AM (equivalente ao `start-dev --import-realm` do
-  Keycloak, mas em duas peças porque este fork não tem um "modo dev" com
-  import automático pronto).
-- `forgerock/provision.sh` — equivalente ao antigo `keycloak/realm-export.json`:
-  cria via REST o OAuth2 Provider (com os 4 escopos `<recurso>:read`/
-  `<recurso>:write`), os clients `tasks-client`/`billing-client` e o usuário
-  `demo`. Os comentários no topo do arquivo documentam decisões
-  não-óbvias específicas deste fork do AM (por que tudo fica no realm raiz,
-  o formato exigido para atributos multivalorados do client OAuth2, etc.).
 
 ## 5. Simplificações desta PoC (documentadas de propósito)
 
 - `H2` em memória no `crud-service` e no `billing-service` — dados somem a cada restart.
 - CSRF desabilitado no sidecar só para facilitar testes com curl/Postman.
-- Tudo provisionado no **realm raiz** (`/`) do AM, não num realm dedicado:
-  neste fork, um realm criado via REST não vem com suporte a identidades do
-  tipo "Agent" (necessário para os OAuth2 Clients) — só o realm raiz tem
-  isso de fábrica num install silencioso. Ver comentários no topo de
-  `forgerock/provision.sh`.
-- PKCE (`code_challenge`) desligado no OAuth2 Provider — o
-  `spring-boot-starter-oauth2-client` não envia `code_challenge` por padrão
-  para clients confidenciais (com client-secret), só para clients públicos.
-- Sem tela de consentimento "silenciosa" por escopo: o AM (nesta versão)
-  não tem o equivalente direto ao `display.on.consent.screen: false` do
-  Keycloak, então o primeiro login já mostra consentimento para `task:read`/
-  `billing:read` (não só para o `:write`, como acontecia no Keycloak).
-- `ADMIN_PWD`/senhas de dev em texto plano em `forgerock/openam-config.properties`
-  e no `docker-compose.yml` — só para ambiente local, nunca faça isso fora
-  disso (mesmo espírito do `sslRequired: none` que já existia na versão
-  Keycloak desta PoC).
 - O token de acesso não é repassado ao `crud-service` (ele não teria como
   validar); em vez disso propagamos identidade via headers
   `X-Auth-User` / `X-Auth-Scopes` — um passo further seria assinar/cifrar
@@ -250,3 +230,52 @@ independente de existir rota para o path).
 - Sem refresh automático de token expirado nesta versão — para produção,
   o `spring-boot-starter-oauth2-client` já dá suporte a isso via
   `OAuth2AuthorizedClientManager` com `refresh_token`.
+- Sem AM próprio no compose (ver seção 0) — dependência de uma instância
+  externa é uma simplificação real desta PoC, não só estética: reduz o que
+  precisa ser validado/mantido aqui, mas também significa que "subir o
+  ambiente" não é mais um único `docker compose up` autocontido como era
+  com o Keycloak.
+
+## 6. Histórico da investigação do fork `openidentityplatform/openam`
+
+Documentado aqui só para quem for tentar novamente rodar um AM self-hosted
+via Docker nesta PoC no futuro — não é necessário para usar o que está
+implementado hoje (seção 1-3).
+
+Chegamos a implementar e validar um `docker-compose` completo com
+`openidentityplatform/openam` (fork open-source que deu origem ao produto
+comercial), incluindo:
+
+- Instalação silenciosa automatizada (Tomcat + OpenDJ embutido).
+- Provisionamento via REST do OAuth2 Provider, dos dois clients e do
+  usuário de teste (equivalente ao `realm-export.json` do Keycloak).
+- Um bug real e corrigido: o AM tenta gravar o consentimento do usuário
+  ("Allow") num atributo LDAP configurável (`savedConsentAttribute`) que
+  vem **vazio** por padrão num install silencioso — tentar gravar nele
+  quebra com HTTP 500 (`Illegal arguments: One or more required arguments
+  is null or empty`, visível em
+  `/usr/openam/config/openam/debug/OAuth2Provider`). Corrigido estendendo o
+  schema LDAP com um atributo próprio via `ldapmodify` e configurando
+  `savedConsentAttribute` para apontar para ele.
+- Um segundo bug, **não resolvido**: mesmo com o anterior corrigido, a
+  troca do `code` por token (`POST /oauth2/access_token`) retorna 500
+  sempre que o escopo `openid` está presente (ou seja, sempre que se pede
+  um ID Token OIDC, não só um access token OAuth2 puro). Confirmado:
+  - Reproduzível em duas versões da imagem (`16.1.2` e `16.0.6`).
+  - Sem relação com PKCE (falha com e sem `code_challenge`).
+  - Sem relação com os scripts padrão de modificação de token/claims
+    (falha igual com os scripts Groovy padrão, com eles trocados por
+    scripts JavaScript no-op, e com o campo de script vazio/`[Empty]`).
+  - **Sem escopo `openid`** (OAuth2 puro), o mesmo fluxo completa com
+    HTTP 200 normalmente — isolando o bug especificamente na emissão do
+    ID Token (JWT), não no access/refresh token (que são opacos nesta
+    config).
+  - Nenhum stack trace foi encontrado em nenhum log acessível (debug
+    files do AM, nem stdout/stderr do container) apesar de tentativas
+    extensivas de elevar o nível de log.
+
+  Próximos passos possíveis para quem retomar isso: tentar um datastore
+  externo em vez do OpenDJ embutido, trocar o algoritmo de assinatura do
+  ID Token, ou abrir uma issue no repositório
+  [OpenIdentityPlatform/OpenAM](https://github.com/OpenIdentityPlatform/OpenAM)
+  com esse reprodutor.

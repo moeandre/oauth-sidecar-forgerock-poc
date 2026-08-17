@@ -2,64 +2,6 @@ version: "3.9"
 
 services:
 
-  openam:
-    image: openidentityplatform/openam:latest
-    container_name: openam
-    # Imagem "crua": nao vem configurada. openam-entrypoint.sh roda a
-    # instalacao silenciosa (openam-config.properties) na primeira subida e
-    # depois inicia o Tomcat em foreground - ver forgerock/ e README secao 0.
-    entrypoint: ["bash", "/tmp/openam-entrypoint.sh"]
-    volumes:
-      - ./forgerock/openam-config.properties:/tmp/openam-config.properties:ro
-      - ./forgerock/openam-entrypoint.sh:/tmp/openam-entrypoint.sh:ro
-      - openam-data:/usr/openam/config
-    ports:
-      - "8080:8080"
-    networks:
-      - poc-net
-    healthcheck:
-      # So fica "healthy" quando (1) openam-entrypoint.sh ja terminou a
-      # instalacao silenciosa (marcador ".provisioning-ready", ver o script)
-      # e (2) o Tomcat da instancia atual esta respondendo. O
-      # "openam-provision" depende disso.
-      #
-      # De proposito o healthcheck NAO autentica via /json/authenticate a
-      # cada execucao: fazer isso repetidamente (a cada poucos segundos, via
-      # "interval") durante a propria janela de instalacao silenciosa entra
-      # em disputa com o AM tentando obter seu proprio admin token
-      # internamente nesse momento - foi a causa de falhas intermitentes de
-      # "Configuration Failed" observadas ao validar esta PoC.
-      test:
-        - "CMD-SHELL"
-        - "test -f /usr/openam/config/.provisioning-ready && curl -sf -o /dev/null http://localhost:8080/openam/isAlive.jsp"
-      interval: 10s
-      timeout: 5s
-      retries: 60
-      start_period: 30s
-
-  openam-provision:
-    image: curlimages/curl:8.11.0
-    container_name: openam-provision
-    depends_on:
-      openam:
-        condition: service_healthy
-    volumes:
-      - ./forgerock/provision.sh:/provision.sh:ro
-    entrypoint: ["/bin/sh", "/provision.sh"]
-    networks:
-      - poc-net
-    environment:
-      AM_BASE_URL: http://openam:8080/openam
-      # Mesmos defaults documentados no forgerock/openam-config.properties e
-      # usados pelo oauth-sidecar abaixo - so aqui pra deixar explicito o
-      # mecanismo de override (nunca comitar valor real fora de dev).
-      AM_ADMIN_PASSWORD: ${FORGEROCK_ADMIN_PASSWORD:-ChangeMe123!}
-      TASKS_CLIENT_SECRET: ${TASKS_CLIENT_SECRET:-tasks-secret}
-      BILLING_CLIENT_SECRET: ${BILLING_CLIENT_SECRET:-billing-secret}
-      DEMO_USERNAME: demo
-      DEMO_PASSWORD: demo1234
-      SIDECAR_BASE_URL: http://localhost:8082
-
   crud-service:
     build: ./crud-service
     container_name: crud-service
@@ -80,8 +22,6 @@ services:
     build: ./oauth-sidecar
     container_name: oauth-sidecar
     depends_on:
-      openam-provision:
-        condition: service_completed_successfully
       crud-service:
         condition: service_started
       billing-service:
@@ -94,11 +34,15 @@ services:
     networks:
       - poc-net
     environment:
-      # Defaults iguais aos do application.yml/forgerock/provision.sh, so pra
-      # deixar explicito o mecanismo de override em producao (nunca comitar
-      # o valor real aqui - isto e so o default de dev).
-      TASKS_CLIENT_SECRET: ${TASKS_CLIENT_SECRET:-tasks-secret}
-      BILLING_CLIENT_SECRET: ${BILLING_CLIENT_SECRET:-billing-secret}
+      # Este PoC NAO sobe um ForgeRock AM/PingAM proprio (ver README secao 0
+      # sobre por que): aponta para uma instancia ja existente, sua ou da
+      # sua organizacao. Preencha estas 3 variaveis antes de "docker compose
+      # up" - sem elas, o sidecar nao sobe (ver
+      # oauth-sidecar/.../application.yml, que falha rapido se estiverem
+      # vazias em vez de silenciosamente usar um default errado).
+      FORGEROCK_ISSUER_URI: "${FORGEROCK_ISSUER_URI:?defina FORGEROCK_ISSUER_URI - ex. https://openam.example.com/am/oauth2/realms/root/realms/poc-realm - ver README}"
+      TASKS_CLIENT_SECRET: "${TASKS_CLIENT_SECRET:?defina TASKS_CLIENT_SECRET - ver README}"
+      BILLING_CLIENT_SECRET: "${BILLING_CLIENT_SECRET:?defina BILLING_CLIENT_SECRET - ver README}"
     # A tabela de rotas (path protegido -> backend -> escopo por verbo) vem do
     # application.yml (ver "sidecar.routes" e SidecarProperties). Uma rota
     # isolada pode ser sobrescrita aqui via environment sem recompilar, ex.:
@@ -126,10 +70,3 @@ services:
 networks:
   poc-net:
     driver: bridge
-
-volumes:
-  # Persiste a configuracao/dados do OpenAM (inclusive o OpenDJ embutido)
-  # entre "docker compose up/down" - sem isso, cada restart repetiria a
-  # instalacao silenciosa (uns 30-40s) do zero. "docker compose down -v"
-  # remove e forca reprovisionamento completo.
-  openam-data:

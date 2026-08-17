@@ -31,38 +31,44 @@ spring:
       client:
         registration:
           # Um client-id por microservico, cada um com seus proprios escopos
-          # (ver forgerock/provision.sh). "write"/"read" nao entram aqui de
+          # (ver README, secao "Pre-requisito: o que precisa existir no seu
+          # ForgeRock AM/PingAM"). "write"/"read" nao entram aqui de
           # proposito: cada client so pede o escopo "*-read" (silencioso,
           # default) de antemao; "*-write" so e solicitado no momento do
           # step-up (ver StepUpAuthorizationRequestResolver e ProxyController),
           # para o AM so exibir o escopo que realmente esta sendo pedido
           # naquele momento, e nao sempre.
+          #
+          # Esta PoC NAO sobe um ForgeRock AM/PingAM proprio: aponta para uma
+          # instancia ja existente (sua ou da sua organizacao). Sem default
+          # de dev aqui de proposito (nao tem "${VAR:default}") - client-id/
+          # secret/issuer-uri sao obrigatorios via variavel de ambiente; sem
+          # eles a app falha rapido no boot (erro claro de placeholder nao
+          # resolvido), em vez de conectar silenciosamente num destino
+          # errado. O docker-compose.yml ja reforca isso com "${VAR:?...}".
           tasks-client:
             provider: forgerock
-            client-id: tasks-client
-            # Default so para dev local (o forgerock/provision.sh de exemplo
-            # usa esse valor). Em producao, SEMPRE via env var (nunca secret
-            # em texto puro versionado) - ex.: TASKS_CLIENT_SECRET=xxxx.
-            client-secret: ${TASKS_CLIENT_SECRET:tasks-secret}
+            client-id: ${TASKS_CLIENT_ID:tasks-client}
+            client-secret: ${TASKS_CLIENT_SECRET}
             authorization-grant-type: authorization_code
             scope: openid,task:read
             redirect-uri: "{baseUrl}/login/oauth2/code/{registrationId}"
           billing-client:
             provider: forgerock
-            client-id: billing-client
-            client-secret: ${BILLING_CLIENT_SECRET:billing-secret}
+            client-id: ${BILLING_CLIENT_ID:billing-client}
+            client-secret: ${BILLING_CLIENT_SECRET}
             authorization-grant-type: authorization_code
             scope: openid,billing:read
             redirect-uri: "{baseUrl}/login/oauth2/code/{registrationId}"
         provider:
           forgerock:
-            # Mesmo hostname usado pelo navegador (host) e pelos containers,
-            # ver README para o ajuste necessario no /etc/hosts. Tudo e
-            # provisionado no realm raiz ("/") do AM, por isso o path nao
-            # tem "/realms/<nome>" (ver forgerock/provision.sh, item 1, sobre
-            # por que esta PoC nao usa um realm dedicado).
-            issuer-uri: http://openam:8080/openam/oauth2
-            #issuer-uri: http://host.docker.internal:8080/openam/oauth2
+            # URL do discovery document ("/.well-known/openid-configuration"
+            # e resolvido a partir daqui) do SEU realm no ForgeRock AM/PingAM,
+            # ex.: https://openam.example.com/am/oauth2/realms/root/realms/poc-realm
+            # (self-hosted AM) ou o equivalente do seu tenant PingAM/Identity
+            # Cloud. Ver README para o passo a passo de como descobrir esse
+            # valor certo no seu ambiente.
+            issuer-uri: ${FORGEROCK_ISSUER_URI}
   #habilita thread cirtuais
   threads:
     virtual:
@@ -78,9 +84,9 @@ sidecar:
   # proprio do microservico) -> politica de escopo por verbo HTTP. Nada disso
   # esta em codigo (ver SidecarProperties/ProxyController); adicionar um novo
   # componente atras do sidecar e so acrescentar uma entrada aqui (e o client
-  # correspondente em spring.security.oauth2.client.registration acima, e em
-  # forgerock/provision.sh) - ou sobrescrever via variavel de ambiente,
-  # ex.: SIDECAR_ROUTES_0_SCOPES_MAPPING_GET=task:read.
+  # correspondente em spring.security.oauth2.client.registration acima, e no
+  # seu ForgeRock AM/PingAM - ver README) - ou sobrescrever via variavel de
+  # ambiente, ex.: SIDECAR_ROUTES_0_SCOPES_MAPPING_GET=task:read.
   routes:
     - path: /api/tasks
       backend-base-url: http://crud-service:8081
